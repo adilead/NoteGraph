@@ -5,7 +5,9 @@ const mem = std.mem;
 const config = @import("config.zig");
 const graph_lib = @import("graph.zig");
 const utils = @import("utils.zig");
+const rendering_lib = @import("renderer.zig");
 const Graph = graph_lib.Graph;
+const Renderer = rendering_lib.Renderer;
 
 const c = @cImport({
     @cInclude("SDL2/SDL.h");
@@ -13,6 +15,11 @@ const c = @cImport({
 
 const WINDOW_WIDTH = 800;
 const WINDOW_HEIGHT = 600;
+
+const FPS: u32 = 30;
+
+const BACKGROUND_COLOR: u32 = 0xFF181818; // abgr
+const ORANGE_COLOR: u32 = 0xFF5396EE; // abgr
 
 var quit = false;
 const stdout = std.io.getStdOut().writer();
@@ -38,29 +45,10 @@ pub fn main() !void {
     var graph: Graph = try Graph.init(gpa.allocator(), files);
     defer graph.deinit();
 
-    try startWindow();
-    
-    // ngConf.* = config.NGConfig.initJSON(allocator, config_path);
-}
+    var renderer = try Renderer.init(WINDOW_WIDTH, WINDOW_HEIGHT);
+    defer renderer.deinit();
 
-pub fn startWindow() !void {
-    if (c.SDL_Init(c.SDL_INIT_VIDEO) < 0) {
-        c.SDL_Log("Unable to initialize SDL: %s", c.SDL_GetError());
-        return error.SDLInitializationFailed;
-    }
-    defer c.SDL_Quit();
-
-    const window = c.SDL_CreateWindow("GraphNote", 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0) orelse {
-        c.SDL_Log("Unable to initialize SDL: %s", c.SDL_GetError());
-        return error.SDLInitializationFailed;
-    };
-    defer c.SDL_DestroyWindow(window);
-
-    const renderer = c.SDL_CreateRenderer(window, -1, c.SDL_RENDERER_ACCELERATED) orelse {
-        c.SDL_Log("Unable to initialize SDL: %s", c.SDL_GetError());
-        return error.SDLInitializationFailed;
-    };
-    defer c.SDL_DestroyRenderer(renderer);
+    // try startWindow();
 
     while (!quit){
         var event: c.SDL_Event = undefined;
@@ -72,6 +60,10 @@ pub fn startWindow() !void {
                 else => {},
             }
         }
+
+        try renderer.render(&graph);
+
+        _ = c.SDL_Delay(1000/30);     
     }
 }
 

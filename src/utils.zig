@@ -12,14 +12,6 @@ const LinkPathError = error {
     FileDoesNotExist
 };
 
-var prng = std.rand.DefaultPrng.init(blk: {
-        var seed: u64 = undefined;
-        std.os.getrandom(std.mem.asBytes(&seed));
-        break :blk seed;
-    });
-pub const random = prng.random();
-
-
 pub fn fileExists(rel_path: []const u8) bool {
     const file = try fs.cwd().openFile(rel_path, .{}) catch |err| {
         _ = err;
@@ -113,6 +105,7 @@ pub fn getLinks(allocator: std.mem.Allocator, file_path: []const u8, files: std.
     var size = (try file.stat()).size;
 
     const read_buf = try file.readToEndAlloc(allocator, size);
+    defer allocator.free(read_buf);
     // debug.print("{s}\n", .{read_buf});
 
     if(read_buf.len == 0) return linked_files;
@@ -142,10 +135,10 @@ pub fn getLinks(allocator: std.mem.Allocator, file_path: []const u8, files: std.
         }
 
         if(link_end != -1 and link_start != -1){
-            var link = read_buf[@intCast(u32, link_start)..@intCast(u32, link_end)];
+            var link = try allocator.dupe(u8, read_buf[@intCast(u32, link_start)..@intCast(u32, link_end)]);
             // debug.print("{s}\n", .{link});
-            if(expandLink(link, files)) |_| {
-                try linked_files.append(link);
+            if(expandLink(link, files)) |linked_file| {
+                try linked_files.append(linked_file);
             } else |_| {
                 try stderr.print("{s} does not exsist\n", .{link});
             }

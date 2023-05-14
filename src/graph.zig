@@ -4,26 +4,30 @@ const test_allocator = std.testing.allocator;
 const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
 
+const random = std.crypto.random;
+
 const utils = @import("utils.zig");
+
 const Node = struct {
     id: u32,
     file: []const u8,
     path: []const u8,
     edges: std.ArrayList(u32),
-    file_links: std.ArrayList([]const u8),
+    file_links: std.ArrayList([]const u8), //owned externally
     hashtags: std.ArrayList([]const u8),
     created: i64, //time stamp
     position: Point
 };
 
 const Edge = struct {
-    x: u32,
-    y: u32,
+    u: u32,
+    v: u32,
 };
 
+/// x and y in [0,1) 
 const Point = struct {
-    x: i32,
-    y: i32,
+    x: f32,
+    y: f32,
 };
 
 
@@ -66,8 +70,9 @@ pub const Graph = struct {
                 //TODO What to do when hash collision
                 var file_cpy = try self.allocator.dupe(u8, file);
                 try self.id_lookup.put(file_cpy, id);
+
                 //get links
-                var links = try utils.getLinks(self.allocator, file, files);
+                var file_links = try utils.getLinks(self.allocator, file, files);
 
                 //get hashtags
                 var hashtags = try utils.getHashtags(self.allocator, file);
@@ -78,16 +83,16 @@ pub const Graph = struct {
                     .file = std.fs.path.basename(file_cpy),
                     .path = file_cpy,
                     .edges = std.ArrayList(u32).init(self.allocator),
-                    .file_links = links,
+                    .file_links = file_links,
                     .hashtags = hashtags,
                     .created = std.time.milliTimestamp(),
-                    .position = Point {.x=0, .y=0}
+                    .position = Point {.x=random.float(f32), .y=random.float(f32)}
                 };
                 // update nodes
                 try self.nodes.put(id, node);
-                // TODO update edges
             }
         }
+        try updateEdges(self);
     }
 
     ///Call this if a file was deleted and needs to be removed from the graph
@@ -95,6 +100,28 @@ pub const Graph = struct {
         //TODO Implement
         _ = id;
         _ = self;
+    }
+
+    ///clears edges and computes them again
+    fn updateEdges(self: *Graph) !void {
+        //TODO Edges are inserted twice with swapped (u,v)
+        var iter = self.nodes.iterator();
+        self.edges.clearAndFree();
+        while(iter.next()) |entry| {
+            var node: *Node = entry.value_ptr;
+            for(node.file_links.items) |link| {
+                var v = node.id;
+
+                var u = self.id_lookup.get(link) orelse {
+                    std.debug.print("Skipped {s}\n", .{link});
+                    continue;
+                };
+
+                var edge: Edge = .{.v=v, .u=u};
+
+                try self.edges.put(edge, {});
+            }
+        }
     }
 
     pub fn deinit(self: *Graph) void {
@@ -106,10 +133,7 @@ pub const Graph = struct {
 
             var node: Node = self.nodes.get(entry.value_ptr.*) orelse continue;
             var file_links = node.file_links;
-
-            for(file_links.items) |link| {
-                self.allocator.free(link);
-            }
+            _ = file_links;
 
             node.file_links.deinit();
             node.edges.deinit();
