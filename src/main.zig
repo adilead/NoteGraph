@@ -6,6 +6,7 @@ const config = @import("config.zig");
 const graph_lib = @import("graph.zig");
 const utils = @import("utils.zig");
 const rendering_lib = @import("renderer.zig");
+const layout = @import("layout.zig");
 const Graph = graph_lib.Graph;
 const Renderer = rendering_lib.Renderer;
 
@@ -13,8 +14,8 @@ const c = @cImport({
     @cInclude("SDL2/SDL.h");
 });
 
-const WINDOW_WIDTH = 800;
-const WINDOW_HEIGHT = 600;
+const WINDOW_WIDTH: i32 = 1500;
+const WINDOW_HEIGHT: i32 = 1000;
 
 const FPS: u32 = 30;
 
@@ -42,8 +43,10 @@ pub fn main() !void {
 
     var files = try utils.traverseRoot(gpa.allocator(), ngConf.root, &file_types);
 
-    var graph: Graph = try Graph.init(gpa.allocator(), files);
+    var graph: Graph = try Graph.init(gpa.allocator(), files, @intToFloat(f32, WINDOW_WIDTH), @intToFloat(f32, WINDOW_HEIGHT));
     defer graph.deinit();
+
+    try layout.layout(&graph, layout.LayoutMethod.Fruchterman, WINDOW_WIDTH, WINDOW_HEIGHT);
 
     var renderer = try Renderer.init(WINDOW_WIDTH, WINDOW_HEIGHT);
     defer renderer.deinit();

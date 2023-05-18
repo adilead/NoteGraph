@@ -80,10 +80,14 @@ pub const Renderer = struct{
             
             _ = c.SDL_RenderDrawLine(
                 self.renderer,
-                @floatToInt(i32, u.position.x * @intToFloat(f32, w)),
-                @floatToInt(i32, u.position.y * @intToFloat(f32, h)),
-                @floatToInt(i32, v.position.x * @intToFloat(f32, w)),
-                @floatToInt(i32, v.position.y * @intToFloat(f32, h)),
+                // @floatToInt(i32, u.position.x * @intToFloat(f32, w)),
+                // @floatToInt(i32, u.position.y * @intToFloat(f32, h)),
+                // @floatToInt(i32, v.position.x * @intToFloat(f32, w)),
+                // @floatToInt(i32, v.position.y * @intToFloat(f32, h)),
+                @floatToInt(i32, u.position.x),
+                @floatToInt(i32, u.position.y),
+                @floatToInt(i32, v.position.x),
+                @floatToInt(i32, v.position.y),
             );
         }
         
@@ -93,8 +97,10 @@ pub const Renderer = struct{
         setColor(self.renderer, VERT_COLOR);
         while(iter_nodes.next()) |entry| {
             var node = entry.value_ptr;
-            var x: i32 = @floatToInt(i32, node.position.x * @intToFloat(f32, w)) - 10;
-            var y: i32 = @floatToInt(i32, node.position.y * @intToFloat(f32, h)) - 10;
+            // var x: i32 = @floatToInt(i32, node.position.x * @intToFloat(f32, w)) - 10;
+            // var y: i32 = @floatToInt(i32, node.position.y * @intToFloat(f32, h)) - 10;
+            var x: i32 = @floatToInt(i32, node.position.x) - 10;
+            var y: i32 = @floatToInt(i32, node.position.y) - 10;
 
             var rect: c.SDL_Rect = c.SDL_Rect {.x=x, .y=y, .w=20, .h=20};
 

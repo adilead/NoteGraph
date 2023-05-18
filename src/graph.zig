@@ -5,6 +5,7 @@ const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
 
 const random = std.crypto.random;
+const math = std.math;
 
 const utils = @import("utils.zig");
 
@@ -25,19 +26,26 @@ const Edge = struct {
 };
 
 /// x and y in [0,1) 
-const Point = struct {
+pub const Point = struct {
     x: f32,
     y: f32,
 };
 
+pub fn distance(p1: Point, p2: Point) f32 {
+    var dx = p1.x - p2.x;
+    var dy = p1.y - p2.y;
+    return math.sqrt(dx * dx + dy * dy);
+}
 
 pub const Graph = struct {
     allocator: Allocator,
     nodes: std.AutoArrayHashMap(u32, Node),
     edges: std.AutoArrayHashMap(Edge, void),
     id_lookup: std.StringArrayHashMap(u32),
+    window_width: f32,
+    window_height: f32,
 
-    pub fn init(allocator: Allocator, files: std.ArrayList([]const u8)) !Graph {
+    pub fn init(allocator: Allocator, files: std.ArrayList([]const u8), window_width: f32, window_height: f32) !Graph {
 
         var nodes = std.AutoArrayHashMap(u32, Node).init(allocator);
         var edges = std.AutoArrayHashMap(Edge, void).init(allocator);
@@ -47,7 +55,9 @@ pub const Graph = struct {
             .allocator=allocator,
             .nodes=nodes,
             .edges=edges,
-            .id_lookup=id_lookup
+            .id_lookup=id_lookup,
+            .window_width=window_width,
+            .window_height=window_height
         };
 
         try graph.update(files);
@@ -86,7 +96,7 @@ pub const Graph = struct {
                     .file_links = file_links,
                     .hashtags = hashtags,
                     .created = std.time.milliTimestamp(),
-                    .position = Point {.x=random.float(f32), .y=random.float(f32)}
+                    .position = Point {.x=random.float(f32) * self.window_width, .y=random.float(f32) * self.window_height}
                 };
                 // update nodes
                 try self.nodes.put(id, node);
@@ -104,7 +114,7 @@ pub const Graph = struct {
 
     ///clears edges and computes them again
     fn updateEdges(self: *Graph) !void {
-        //TODO Edges are inserted twice with swapped (u,v)
+        //TODO Insert edges only once (check if a node with swapped(u,v) already exists)
         var iter = self.nodes.iterator();
         self.edges.clearAndFree();
         while(iter.next()) |entry| {
@@ -118,8 +128,12 @@ pub const Graph = struct {
                 };
 
                 var edge: Edge = .{.v=v, .u=u};
+                var adv_edge: Edge = .{.v=u, .u=v};
 
-                try self.edges.put(edge, {});
+                if(!self.edges.contains(adv_edge)){
+                    try self.edges.put(edge, {});
+                }
+
             }
         }
     }
