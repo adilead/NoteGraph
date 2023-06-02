@@ -16,10 +16,6 @@ const K: f32 = 0.1; // force factor
 const C: f32 = 0.9;           // Coupling factor
 const EPSILON: f32 = 0.000001;
 
-const LayoutError = error {
-    InvalidGraph,
-};
-
 //TODO remove width and height from function interface because width and height are now in the graph
 pub fn layout(graph: *Graph, method: LayoutMethod, width: i32, height: i32) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -87,8 +83,8 @@ fn fruchtermanLayout(graph: *Graph, width: i32, height: i32, temperature: f32, a
 
     //attracting forces
     for(graph.edges.keys()) |*edge| {
-        var u = graph.nodes.getIndex(edge.u) orelse return LayoutError.InvalidGraph; 
-        var v = graph.nodes.getIndex(edge.v) orelse return LayoutError.InvalidGraph; 
+        var u = graph.nodes.getIndex(edge.u) orelse unreachable; 
+        var v = graph.nodes.getIndex(edge.v) orelse unreachable; 
 
         var dx = nodes[u].position.x - nodes[v].position.x;
         var dy = nodes[u].position.y - nodes[v].position.y;

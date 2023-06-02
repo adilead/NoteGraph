@@ -48,12 +48,12 @@ pub fn main() !void {
 
     try layout.layout(&graph, layout.LayoutMethod.Fruchterman, WINDOW_WIDTH, WINDOW_HEIGHT);
 
-    var renderer = try Renderer.init(WINDOW_WIDTH, WINDOW_HEIGHT);
+    var renderer = try Renderer.init(WINDOW_WIDTH, WINDOW_HEIGHT, ngConf.font_size, arena.allocator());
     defer renderer.deinit();
 
     // try startWindow();
 
-    while (!quit){
+   while (!quit){
         var event: c.SDL_Event = undefined;
         while (c.SDL_PollEvent(&event) != 0) {
             switch (event.@"type") {
@@ -63,7 +63,8 @@ pub fn main() !void {
                 else => {},
             }
         }
-
+        
+        try renderer.updateRenderData(&graph);
         try renderer.render(&graph);
 
         _ = c.SDL_Delay(1000/30);     
@@ -99,6 +100,11 @@ pub fn getConfig(allocator: mem.Allocator) !config.NGConfig {
 
             try map.put("config", config_path);
             debug.print("{s}\n", .{config_path});
+
+        } else if(std.mem.eql(u8, arg, "--fontsize")) {
+            var fontsize : []const u8 = args.next() orelse break;
+
+            try map.put("fontsize", fontsize);
 
         } else {
             debug.print("{s}\n", .{arg});

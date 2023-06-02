@@ -8,8 +8,9 @@ const random = std.crypto.random;
 const math = std.math;
 
 const utils = @import("utils.zig");
+const renderer = @import("renderer.zig");
 
-const Node = struct {
+pub const Node = struct {
     id: u32,
     file: []const u8,
     path: []const u8,
@@ -17,7 +18,8 @@ const Node = struct {
     file_links: std.ArrayList([]const u8), //owned externally
     hashtags: std.ArrayList([]const u8),
     created: i64, //time stamp
-    position: Point
+    position: Point,
+    render_data: ?*renderer.NodeRenderData, // not owned
 };
 
 const Edge = struct {
@@ -57,7 +59,7 @@ pub const Graph = struct {
             .edges=edges,
             .id_lookup=id_lookup,
             .window_width=window_width,
-            .window_height=window_height
+            .window_height=window_height,
         };
 
         try graph.update(files);
@@ -96,7 +98,8 @@ pub const Graph = struct {
                     .file_links = file_links,
                     .hashtags = hashtags,
                     .created = std.time.milliTimestamp(),
-                    .position = Point {.x=random.float(f32) * self.window_width, .y=random.float(f32) * self.window_height}
+                    .position = Point {.x=random.float(f32) * self.window_width, .y=random.float(f32) * self.window_height},
+                    .render_data = null
                 };
                 // update nodes
                 try self.nodes.put(id, node);
@@ -145,7 +148,7 @@ pub const Graph = struct {
             var file: []const u8 = entry.key_ptr.*;
             self.allocator.free(file);
 
-            var node: Node = self.nodes.get(entry.value_ptr.*) orelse continue;
+            var node: Node = self.nodes.get(entry.value_ptr.*) orelse unreachable;
             var file_links = node.file_links;
             _ = file_links;
 
