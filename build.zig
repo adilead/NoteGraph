@@ -1,37 +1,60 @@
 const std = @import("std");
 
-pub fn build(b: *std.build.Builder) void {
-    // Standard target options allows the person running `zig build` to choose
-    // what target to build for. Here we do not override the defaults, which
-    // means any target is allowed, and the default is native. Other options
-    // for restricting supported target set are available.
+pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
 
-    // Standard release options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
-    const mode = b.standardReleaseOptions();
-
-    const exe = b.addExecutable("NoteGraph", "src/main.zig");
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
+    const exe = b.addExecutable(.{
+        .name = "ng",
+        .root_source_file = .{ .path = "src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
     exe.linkSystemLibrary("SDL2");
     exe.linkSystemLibrary("SDL2_ttf");
     exe.linkSystemLibrary("c");
-    exe.install();
+    exe.linkSystemLibrary("GL");
 
-    const run_cmd = exe.run();
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    const IMGUI_SOURCES = [_][]const u8{
+        "deps/cimgui/cimgui.cpp",
+        "deps/cimgui/imgui/imgui.cpp",
+        "deps/cimgui/imgui/imgui_draw.cpp",
+        "deps/cimgui/imgui/imgui_demo.cpp",
+        "deps/cimgui/imgui/imgui_widgets.cpp",
+        "deps/cimgui/imgui/imgui_tables.cpp",
 
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
+        // These lines:
+        "deps/cimgui/imgui/backends/imgui_impl_sdl2.cpp",
+        "deps/cimgui/imgui/backends/imgui_impl_sdlrenderer2.cpp",
+        "deps/cimgui/imgui/backends/imgui_impl_opengl3.cpp",
+    };
 
-    const exe_tests = b.addTest("src/tests.zig");
-    exe_tests.setTarget(target);
-    exe_tests.setBuildMode(mode);
+    exe.linkLibC();
 
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&exe_tests.step);
+    exe.linkLibCpp();
+    exe.addIncludePath(b.path("deps/cimgui"));
+    exe.addIncludePath(b.path("deps/cimgui/imgui"));
+    exe.addIncludePath(b.path("deps/cimgui/imgui/backends"));
+    exe.addIncludePath(b.path("deps/cimgui/generator/output"));
+    exe.addCSourceFiles(.{ .files = &IMGUI_SOURCES });
+    exe.defineCMacro("IMGUI_IMPL_OPENGL_LOADER_GL3W", "");
+    exe.defineCMacro("IMGUI_IMPL_API", "extern \"C\"");
+
+    // exe.addLibraryPath(std.Build.path(b, "deps/imgui/cimgui"));
+    // exe.linkSystemLibrary("cimgui");
+
+    // exe.addIncludePath(std.Build.path(b, "libs"));
+
+    b.installArtifact(exe);
+
+    // const imgui = b.addStaticLibrary(.{ .name = "imgui" });
+    // linkArtifact(b, imgui, b.standardTargetOptions(.{
+    //     .name = "imgui",
+    // }));
+
+    // exe.install();
+
+    const run_ng = b.addRunArtifact(exe);
+    const run_ng_step = b.step("run", "Runs the app");
+    run_ng_step.dependOn(&run_ng.step);
 }
