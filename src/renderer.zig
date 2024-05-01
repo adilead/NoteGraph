@@ -5,7 +5,7 @@ const debug = std.debug;
 const proc = std.process;
 const mem = std.mem;
 
-const c = @import("main.zig").c;
+const c = @import("c_include.zig").c;
 const graph_lib = @import("graph.zig");
 const Graph = graph_lib.Graph;
 
@@ -83,7 +83,6 @@ pub const Renderer = struct {
     window_height: i32,
     render_data: std.ArrayList(*NodeRenderData),
     allocator: std.mem.Allocator,
-    gl_context: c.SDL_GLContext,
     ioptr: *c.ImGuiIO,
 
     pub fn init(window_width: i32, window_height: i32, font_size: i32, allocator: std.mem.Allocator) !Renderer {
@@ -91,16 +90,7 @@ pub const Renderer = struct {
             c.SDL_Log("Unable to initialize SDL: %s", c.SDL_GetError());
             return error.SDLInitializationFailed;
         }
-        // prepare OpenGL stuff
-        _ = c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_FLAGS, 0);
-        _ = c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_PROFILE_MASK, c.SDL_GL_CONTEXT_PROFILE_CORE);
-        _ = c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-        _ = c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_MINOR_VERSION, 0);
 
-        _ = c.SDL_SetHint(c.SDL_HINT_RENDER_DRIVER, "opengl");
-        _ = c.SDL_GL_SetAttribute(c.SDL_GL_DEPTH_SIZE, 24);
-        _ = c.SDL_GL_SetAttribute(c.SDL_GL_STENCIL_SIZE, 8);
-        _ = c.SDL_GL_SetAttribute(c.SDL_GL_DOUBLEBUFFER, 1);
         var current: c.SDL_DisplayMode = undefined;
         _ = c.SDL_GetCurrentDisplayMode(0, &current);
 
@@ -128,12 +118,6 @@ pub const Renderer = struct {
         };
 
         //init imgui
-        const gl_context = c.SDL_GL_CreateContext(window) orelse {
-            c.SDL_Log("Unable to initialize Opengl Context: %s", c.SDL_GetError());
-            return error.SDLInitializationFailed;
-        };
-
-        _ = c.SDL_GL_SetSwapInterval(1);
         _ = c.igCreateContext(null) orelse {
             c.SDL_Log("Unable to initialize ImGui Context: %s", c.SDL_GetError());
             return error.SDLInitializationFailed;
@@ -151,11 +135,6 @@ pub const Renderer = struct {
             return error.SDLInitializationFailed;
         }
 
-        // if (!c.ImGui_ImplOpenGL3_Init("#version 130")) {
-        //     c.SDL_Log("Unable to initialize ImGui Context: %s", c.SDL_GetError());
-        //     return error.SDLInitializationFailed;
-        // }
-
         c.igStyleColorsDark(null);
 
         return Renderer{
@@ -166,7 +145,6 @@ pub const Renderer = struct {
             .window_width = window_width,
             .allocator = allocator,
             .render_data = std.ArrayList(*NodeRenderData).init(allocator),
-            .gl_context = gl_context,
             .ioptr = ioptr,
         };
     }
@@ -177,11 +155,9 @@ pub const Renderer = struct {
         c.ImGui_ImplSDLRenderer2_NewFrame();
         c.ImGui_ImplSDL2_NewFrame();
         c.igNewFrame();
-        var b = true;
-        c.igShowDemoWindow(&b);
+
         _ = c.igBegin("Hello, world!", null, 0);
         c.igText("This is some useful text");
-
         c.igEnd();
         c.igRender();
 
@@ -219,8 +195,8 @@ pub const Renderer = struct {
             const x: i32 = @as(i32, @intFromFloat(node.position.x));
             const y: i32 = @as(i32, @intFromFloat(node.position.y));
 
-            self.renderNodeFilled(x, y, 5);
-            // _ = c.filledCircleColor(self.renderer, @intCast(x), @intCast(y), 10, VERT_COLOR);
+            // self.renderNodeFilled(x, y, 5);
+            _ = c.filledCircleColor(self.renderer, @intCast(x), @intCast(y), 5, VERT_COLOR);
 
             if (node.render_data) |nrd| {
                 _ = c.SDL_RenderCopy(self.renderer, nrd.texture, null, &nrd.rect);

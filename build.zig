@@ -12,6 +12,7 @@ pub fn build(b: *std.Build) void {
     });
     exe.linkSystemLibrary("SDL2");
     exe.linkSystemLibrary("SDL2_ttf");
+    exe.linkSystemLibrary("SDL2_gfx");
     exe.linkSystemLibrary("c");
     exe.linkSystemLibrary("GL");
 
@@ -40,19 +41,7 @@ pub fn build(b: *std.Build) void {
     exe.defineCMacro("IMGUI_IMPL_OPENGL_LOADER_GL3W", "");
     exe.defineCMacro("IMGUI_IMPL_API", "extern \"C\"");
 
-    // exe.addLibraryPath(std.Build.path(b, "deps/imgui/cimgui"));
-    // exe.linkSystemLibrary("cimgui");
-
-    // exe.addIncludePath(std.Build.path(b, "libs"));
-
     b.installArtifact(exe);
-
-    // const imgui = b.addStaticLibrary(.{ .name = "imgui" });
-    // linkArtifact(b, imgui, b.standardTargetOptions(.{
-    //     .name = "imgui",
-    // }));
-
-    // exe.install();
 
     const run_ng = b.addRunArtifact(exe);
     const run_ng_step = b.step("run", "Runs the app");
