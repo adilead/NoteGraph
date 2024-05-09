@@ -46,4 +46,9 @@ pub fn build(b: *std.Build) void {
     const run_ng = b.addRunArtifact(exe);
     const run_ng_step = b.step("run", "Runs the app");
     run_ng_step.dependOn(&run_ng.step);
+
+    const unit_test_step = b.step("test", "Runs unit tests");
+    const test_utils = b.addTest(.{ .root_source_file = b.path("src/utils.zig") });
+    const run_unit = b.addRunArtifact(test_utils);
+    unit_test_step.dependOn(&run_unit.step);
 }

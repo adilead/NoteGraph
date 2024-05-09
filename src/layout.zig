@@ -39,7 +39,7 @@ fn generateFruchtermanLayout(graph: *Graph, width: i32, height: i32, allocator: 
     var temperature = initial_temperature;
 
     var i: usize = 0;
-    while (i < 20) {
+    while (i < 2) {
         defer i += 1;
         try fruchtermanLayout(graph, width, height, temperature, allocator);
         temperature *= C; // Reduce the temperature with each iteration

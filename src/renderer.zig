@@ -20,8 +20,8 @@ const RenderError = error{
 
 pub const NodeRenderData = struct {
     // TODO slap data for the rendering of the node itself into their
-    surface: *c.SDL_Surface, //owned
-    texture: *c.SDL_Texture, //owned
+    surface: ?*c.SDL_Surface, //owned
+    texture: ?*c.SDL_Texture, //owned
     text: [:0]const u8,
     rect: c.SDL_Rect, //owned
     node: *graph_lib.Node,
@@ -30,13 +30,14 @@ pub const NodeRenderData = struct {
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, node: *graph_lib.Node, font: *c.TTF_Font, renderer: *c.SDL_Renderer) NodeRenderData {
+        _ = font;
+        _ = renderer;
         const color = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
-        // TODO Display actual name
-        const surface = c.TTF_RenderText_Solid(font, node.file.ptr, color).?;
-        const texture = c.SDL_CreateTextureFromSurface(renderer, surface).?;
+        // const surface = c.TTF_RenderText_Solid(font, node.file.ptr, color).?;
+        // const texture = c.SDL_CreateTextureFromSurface(renderer, surface).?;
         var ndr = NodeRenderData{
-            .surface = surface,
-            .texture = texture,
+            .surface = null,
+            .texture = null,
             .text = undefined,
             .rect = c.SDL_Rect{ .x = @as(i32, @intFromFloat(node.position.x)), .y = @as(i32, @intFromFloat(node.position.y)), .w = 60, .h = 20 }, // TODO
             .node = node,
@@ -54,8 +55,14 @@ pub const NodeRenderData = struct {
         c.SDL_DestroyTexture(self.texture);
         const color = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
         self.text = try self.allocator.dupeZ(u8, std.fs.path.basename(text));
-        self.surface = c.TTF_RenderText_Solid(font, self.text.ptr, color).?;
-        self.texture = c.SDL_CreateTextureFromSurface(renderer, self.surface).?;
+        self.surface = c.TTF_RenderText_Solid(font, self.text.ptr, color) orelse {
+            debug.print("ERROR: {s}\n", .{self.text});
+            return;
+        };
+        self.texture = c.SDL_CreateTextureFromSurface(renderer, self.surface) orelse {
+            debug.print("ERROR: {s}\n", .{self.text});
+            return;
+        };
 
         _ = c.SDL_QueryTexture(self.texture, null, null, &self.rect.w, &self.rect.h);
     }
@@ -284,7 +291,7 @@ pub const Renderer = struct {
             } else {
                 const ndr = try self.allocator.create(NodeRenderData);
                 ndr.* = NodeRenderData.init(self.allocator, node, self.font, self.renderer);
-                //TODO file name with zero at the end
+                try ndr.updateText(node.file, self.font, self.renderer);
                 try self.render_data.append(ndr);
                 node.render_data = self.render_data.items[self.render_data.items.len - 1];
             }

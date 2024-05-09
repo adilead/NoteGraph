@@ -41,19 +41,21 @@ pub fn distance(p1: Point, p2: Point) f32 {
 
 pub const Graph = struct {
     allocator: Allocator,
+    root: []const u8,
     nodes: std.AutoArrayHashMap(u32, Node),
     edges: std.AutoArrayHashMap(Edge, void),
     id_lookup: std.StringArrayHashMap(u32),
     window_width: f32,
     window_height: f32,
 
-    pub fn init(allocator: Allocator, files: std.ArrayList([]const u8), window_width: f32, window_height: f32) !Graph {
+    pub fn init(allocator: Allocator, root: []const u8, files: std.ArrayList([]const u8), window_width: f32, window_height: f32) !Graph {
         const nodes = std.AutoArrayHashMap(u32, Node).init(allocator);
         const edges = std.AutoArrayHashMap(Edge, void).init(allocator);
         const id_lookup = std.StringArrayHashMap(u32).init(allocator);
 
         var graph = Graph{
             .allocator = allocator,
+            .root = try allocator.dupe(u8, root),
             .nodes = nodes,
             .edges = edges,
             .id_lookup = id_lookup,
@@ -77,18 +79,17 @@ pub const Graph = struct {
             } else {
                 // create new entry in id_lookup
                 const id = std.hash.CityHash32.hash(file);
-                //TODO What to do when hash collision
                 const file_cpy = try self.allocator.dupe(u8, file);
                 try self.id_lookup.put(file_cpy, id);
 
                 //get links
-                const file_links = try utils.getLinks(self.allocator, file, files);
+                const file_links = try utils.getLinks(self.allocator, file, self.root, files, false);
 
                 //get hashtags
                 const hashtags = try utils.getHashtags(self.allocator, file);
 
                 // create new Node
-                const node: Node = Node{ .id = id, .file = std.fs.path.basename(file_cpy), .path = file_cpy, .edges = std.ArrayList(u32).init(self.allocator), .file_links = file_links, .hashtags = hashtags, .created = std.time.milliTimestamp(), .position = Point{ .x = random.float(f32) * self.window_width, .y = random.float(f32) * self.window_height }, .render_data = null };
+                const node = Node{ .id = id, .file = std.fs.path.basename(file_cpy), .path = file_cpy, .edges = std.ArrayList(u32).init(self.allocator), .file_links = file_links, .hashtags = hashtags, .created = std.time.milliTimestamp(), .position = Point{ .x = random.float(f32) * self.window_width, .y = random.float(f32) * self.window_height }, .render_data = null };
                 // update nodes
                 try self.nodes.put(id, node);
             }
@@ -114,7 +115,7 @@ pub const Graph = struct {
                 const v = node.id;
 
                 const u = self.id_lookup.get(link) orelse {
-                    std.debug.print("Skipped {s}\n", .{link});
+                    // std.debug.print("Skipped {s}: {s}\n", .{ node.path, link });
                     continue;
                 };
 
@@ -135,11 +136,13 @@ pub const Graph = struct {
             const file: []const u8 = entry.key_ptr.*;
             self.allocator.free(file);
 
-            var node: Node = self.nodes.get(entry.value_ptr.*) orelse unreachable;
-            const file_links = node.file_links;
-            _ = file_links;
+            var node: *Node = self.nodes.getPtr(entry.value_ptr.*) orelse unreachable;
 
+            for (node.file_links.items) |link| {
+                self.allocator.free(link);
+            }
             node.file_links.deinit();
+
             node.edges.deinit();
             node.hashtags.deinit();
         }
@@ -147,6 +150,7 @@ pub const Graph = struct {
         self.nodes.deinit();
         self.edges.deinit();
         self.id_lookup.deinit();
+        self.allocator.free(self.root);
     }
 };
 

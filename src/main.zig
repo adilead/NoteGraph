@@ -24,10 +24,11 @@ const stdout = std.io.getStdOut().writer();
 const debug = std.debug;
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+
+    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+    defer arena.deinit();
 
     var ngConf: config.NGConfig = try getConfig(arena.allocator());
     defer ngConf.deinit();
@@ -35,12 +36,19 @@ pub fn main() !void {
     var file_types = std.ArrayList([]const u8).init(arena.allocator());
     defer file_types.deinit();
 
-    try file_types.append("md");
-    try file_types.append("txt");
+    try file_types.append(".md");
 
-    const files = try utils.traverseRoot(gpa.allocator(), ngConf.root, &file_types);
+    const files = try utils.traverseRoot(arena.allocator(), ngConf.root, &file_types);
+    defer {
+        for (files.items) |file| {
+            arena.allocator().free(file);
+        }
+    }
+    // for (files.items) |f| {
+    //     debug.print("{s}\n", .{f});
+    // }
 
-    var graph: Graph = try Graph.init(gpa.allocator(), files, @floatFromInt(WINDOW_WIDTH), @floatFromInt(WINDOW_HEIGHT));
+    var graph: Graph = try Graph.init(gpa.allocator(), ngConf.root, files, @floatFromInt(WINDOW_WIDTH), @floatFromInt(WINDOW_HEIGHT));
     defer graph.deinit();
 
     try layout.layout(&graph, layout.LayoutMethod.Fruchterman, WINDOW_WIDTH, WINDOW_HEIGHT);

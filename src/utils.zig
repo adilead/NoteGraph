@@ -28,20 +28,26 @@ pub fn dirExists(rel_path: []const u8) bool {
     return true;
 }
 
-//returns a full path from files, if link_file_name is found in their
-pub fn expandLink(link_file_name: []const u8, files: std.ArrayList([]const u8)) anyerror![]const u8 {
-    for (files.items) |f| {
-        // debug.print("{s}\n", .{f});
-        if (std.mem.eql(u8, fs.path.basename(f), link_file_name)) {
-            return f;
-        }
+//use this if .md is missing
+pub fn expandLinkWithFileType(allocator: std.mem.Allocator, link: []u8, file_type: []const u8) ![]const u8 {
+    debug.assert(std.fs.path.extension(link).len == 0);
 
-        var split = std.mem.split(u8, fs.path.basename(f), ".");
-        if (std.mem.eql(u8, split.next() orelse "", link_file_name)) {
-            return f;
+    const new_link: []u8 = try allocator.alloc(u8, link.len + file_type.len + 1);
+    new_link[link.len] = '.';
+    @memcpy(new_link[0..link.len], link);
+    @memcpy(new_link[link.len + 1 .. new_link.len], file_type);
+    return new_link;
+}
+
+///Checks if function is a valid file in the repository
+pub fn linkIsValid(link_file_name: []const u8, files: std.ArrayList([]const u8)) bool {
+    debug.assert(std.fs.path.isAbsolute(link_file_name));
+    for (files.items) |f| {
+        if (std.mem.eql(u8, f, link_file_name)) {
+            return true;
         }
     }
-    return LinkPathError.FileDoesNotExist;
+    return false;
 }
 
 /// Returns list of file paths recursively collected from root of type specified in type
@@ -50,10 +56,6 @@ pub fn traverseRoot(allocator: std.mem.Allocator, root: []const u8, file_types: 
     // TODO Change file_types to std.HashMap as a Set
 
     var file_paths = std.ArrayList([]const u8).init(allocator);
-    _ = file_types;
-    var sub_dirs = std.ArrayList([]const u8).init(allocator);
-    defer sub_dirs.deinit();
-    try sub_dirs.append(try allocator.dupe(u8, root));
 
     var root_dir = try std.fs.openDirAbsolute(root, .{ .iterate = true });
     defer root_dir.close();
@@ -66,8 +68,12 @@ pub fn traverseRoot(allocator: std.mem.Allocator, root: []const u8, file_types: 
         if (entry.kind != fs.File.Kind.file) {
             continue;
         }
-        const path = try entry.dir.realpathAlloc(allocator, entry.basename);
-        try file_paths.append(path);
+        for (file_types.items) |ft| {
+            if (std.mem.eql(u8, ft, std.fs.path.extension(entry.path))) {
+                try file_paths.append(try entry.dir.realpathAlloc(allocator, entry.basename));
+                break;
+            }
+        }
     }
 
     return file_paths;
@@ -76,8 +82,14 @@ pub fn traverseRoot(allocator: std.mem.Allocator, root: []const u8, file_types: 
 /// Returns a list of files linked to file. Caller must free results
 /// TODO Make tokens that denote a link configurable. Rn we use the obsidian syntax:
 /// [[link|displayed name]]
-pub fn getLinks(allocator: std.mem.Allocator, file_path: []const u8, files: std.ArrayList([]const u8)) !std.ArrayList([]const u8) {
+pub fn getLinks(allocator: std.mem.Allocator, file_path: []const u8, root: []const u8, files: std.ArrayList([]const u8), ignore_invalid_links: bool) !std.ArrayList([]const u8) {
     var linked_files = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (linked_files.items) |link| {
+            allocator.free(link);
+        }
+        linked_files.deinit();
+    }
 
     var file = try std.fs.cwd().openFile(file_path, .{});
     defer file.close();
@@ -115,13 +127,32 @@ pub fn getLinks(allocator: std.mem.Allocator, file_path: []const u8, files: std.
         }
 
         if (link_end != -1 and link_start != -1) {
-            const link = try allocator.dupe(u8, read_buf[@intCast(link_start)..@intCast(link_end)]);
-            // debug.print("{s}\n", .{link});
-            if (expandLink(link, files)) |linked_file| {
-                try linked_files.append(linked_file);
-            } else |_| {
-                try stderr.print("{s} does not exsist\n", .{link});
+            var link = read_buf[@intCast(link_start)..@intCast(link_end)];
+            if (link.len == 0) {
+                continue;
             }
+
+            if (!std.fs.path.isAbsolute(link)) {
+                link = try std.fs.path.join(allocator, &[_][]const u8{ root, link });
+            } else {
+                link = try allocator.dupe(u8, link);
+            }
+
+            var expanded_link: []const u8 = undefined;
+            if (std.fs.path.extension(link).len == 0) {
+                expanded_link = try expandLinkWithFileType(allocator, link, "md");
+                allocator.free(link);
+            } else {
+                expanded_link = link;
+            }
+            std.debug.print("Expanded link: {s}\n", .{expanded_link});
+            // debug.print("{s}\n", .{link});
+            if (linkIsValid(expanded_link, files) or !ignore_invalid_links) {
+                try linked_files.append(expanded_link);
+            } else {
+                allocator.free(expanded_link);
+            }
+
             link_start = -1;
             link_end = -1;
         }
@@ -141,31 +172,48 @@ pub fn getHashtags(allocator: std.mem.Allocator, file: []const u8) !std.ArrayLis
 }
 
 test "traverse test directory" {
-    std.debug.print("\n", .{}); // new line from Test [] line
-    //
-    var file_types = std.ArrayList([]const u8).init(test_allocator);
-    defer file_types.deinit();
-    try file_types.append("txt");
-    try file_types.append("md");
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
 
-    const root = fs.cwd().realpathAlloc(test_allocator, "./test") catch |err| {
-        try stderr.print("test is not a valid dir\n", .{});
+    // ----- setup test dir
+    var tmp_dir = std.testing.tmpDir(.{}); // This creates a directory under ./zig-cache/tmp/{hash}/test_file
+    const root = try tmp_dir.dir.realpathAlloc(test_allocator, ".");
+    defer test_allocator.free(root);
+    defer tmp_dir.cleanup();
+
+    var file1 = try tmp_dir.dir.createFile("file1.md", .{ .read = true });
+    defer file1.close();
+
+    var file2 = try tmp_dir.dir.createFile("file2.md", .{ .read = true });
+    defer file2.close();
+
+    try tmp_dir.dir.makeDir("subdir1");
+    var file3 = try tmp_dir.dir.createFile("subdir1/file3.txt", .{ .read = true });
+
+    defer file3.close();
+
+    var file_types = std.ArrayList([]const u8).init(alloc);
+    defer file_types.deinit();
+    // try file_types.append("txt");
+    try file_types.append(".md");
+
+    var file_paths = try traverseRoot(alloc, root, &file_types);
+    defer file_paths.deinit();
+
+    std.testing.expectEqual(2, file_paths.items.len) catch |err| {
+        for (file_paths.items) |fp| {
+            debug.print("{s}\n", .{fp});
+        }
         return err;
     };
-    defer test_allocator.free(root);
-
-    // std.debug.print("{s}\n", .{root});
-    var file_paths = try traverseRoot(test_allocator, root, &file_types);
-    for (file_paths.items) |el| {
-        test_allocator.free(el);
-    }
-
-    defer file_paths.deinit();
 }
 
 test "link in file" {
     std.debug.print("\n", .{}); // new line from Test [] line
     var tmp_dir = std.testing.tmpDir(.{}); // This creates a directory under ./zig-cache/tmp/{hash}/test_file
+    const root = try tmp_dir.dir.realpathAlloc(test_allocator, ".");
+    defer test_allocator.free(root);
     defer tmp_dir.cleanup();
 
     var file1 = try tmp_dir.dir.createFile("file1.txt", .{ .read = true });
@@ -174,27 +222,56 @@ test "link in file" {
     var file2 = try tmp_dir.dir.createFile("file2.txt", .{ .read = true });
     defer file2.close();
 
-    const write_buf: []const u8 = "[[file2.txt]]";
+    try tmp_dir.dir.makeDir("subdir1");
+    var file3 = try tmp_dir.dir.createFile("subdir1/file3.txt", .{ .read = true });
+    defer file3.close();
+
+    const wrong_path = "subdir1/bar.txt";
+    const write_buf: []const u8 = "lsjdflkj[[file2.txt|bla]]sdlfjlsdkf\n[[subdir1/file3.txt]]\nsldfjklsdjflksjdf[[" ++ wrong_path ++ "]]\n";
     try file1.writeAll(write_buf);
 
-    const path = try tmp_dir.dir.realpathAlloc(test_allocator, "./file1.txt");
-    defer test_allocator.free(path);
+    const path1 = try tmp_dir.dir.realpathAlloc(test_allocator, "file1.txt");
+    defer test_allocator.free(path1);
 
-    const path2 = try tmp_dir.dir.realpathAlloc(test_allocator, "./file2.txt");
+    const path2 = try tmp_dir.dir.realpathAlloc(test_allocator, "file2.txt");
     defer test_allocator.free(path2);
+
+    const path3 = try tmp_dir.dir.realpathAlloc(test_allocator, "subdir1/file3.txt");
+    defer test_allocator.free(path3);
 
     var files = std.ArrayList([]const u8).init(test_allocator);
     defer files.deinit();
-    try files.append(path);
+    try files.append(path1);
     try files.append(path2);
+    try files.append(path3);
 
-    var links = try getLinks(test_allocator, path, files);
+    {
+        var links_checked = try getLinks(test_allocator, path1, root, files, true);
 
-    debug.assert(std.mem.eql(u8, links.items[0], "file2.txt"));
+        defer {
+            for (links_checked.items) |link| {
+                test_allocator.free(link);
+            }
+            links_checked.deinit();
+        }
 
-    //free links
-    for (links.items) |link| {
-        test_allocator.free(link);
+        try std.testing.expectEqual(2, links_checked.items.len);
+        try std.testing.expectEqualStrings(path2, links_checked.items[0]);
+        try std.testing.expectEqualStrings(path3, links_checked.items[1]);
     }
-    links.deinit();
+    {
+        var links_unchecked = try getLinks(test_allocator, path1, root, files, false);
+        defer {
+            for (links_unchecked.items) |link| {
+                test_allocator.free(link);
+            }
+            links_unchecked.deinit();
+        }
+        try std.testing.expectEqual(3, links_unchecked.items.len);
+        try std.testing.expectEqualStrings(path2, links_unchecked.items[0]);
+        try std.testing.expectEqualStrings(path3, links_unchecked.items[1]);
+        const p = try std.fs.path.join(test_allocator, &[_][]const u8{ root, wrong_path });
+        defer test_allocator.free(p);
+        try std.testing.expectEqualStrings(p, links_unchecked.items[2]);
+    }
 }
