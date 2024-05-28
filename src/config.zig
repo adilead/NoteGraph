@@ -6,7 +6,7 @@ const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
 
 const default_root = "test/";
-const default_font_size = "16";
+const default_font_size = "12";
 
 pub const NGConfig = struct {
     root: []u8,

@@ -7,6 +7,8 @@ const mem = std.mem;
 
 const c = @import("c_include.zig").c;
 const graph_lib = @import("graph.zig");
+const Point = graph_lib.Point;
+const gui = @import("gui.zig");
 const Graph = graph_lib.Graph;
 
 const BACKGROUND_COLOR = 0xFF181818; // abgr
@@ -35,11 +37,12 @@ pub const NodeRenderData = struct {
         const color = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
         // const surface = c.TTF_RenderText_Solid(font, node.file.ptr, color).?;
         // const texture = c.SDL_CreateTextureFromSurface(renderer, surface).?;
+        const pos = node.layout_data.?.getPos();
         var ndr = NodeRenderData{
             .surface = null,
             .texture = null,
             .text = undefined,
-            .rect = c.SDL_Rect{ .x = @as(i32, @intFromFloat(node.position.x)), .y = @as(i32, @intFromFloat(node.position.y)), .w = 60, .h = 20 }, // TODO
+            .rect = c.SDL_Rect{ .x = @as(i32, @intFromFloat(pos.x)), .y = @as(i32, @intFromFloat(pos.y)), .w = 60, .h = 20 }, // TODO
             .node = node,
             .font_color = color,
             .allocator = allocator,
@@ -55,7 +58,7 @@ pub const NodeRenderData = struct {
         c.SDL_DestroyTexture(self.texture);
         const color = c.SDL_Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
         self.text = try self.allocator.dupeZ(u8, std.fs.path.basename(text));
-        self.surface = c.TTF_RenderText_Solid(font, self.text.ptr, color) orelse {
+        self.surface = c.TTF_RenderText_Blended(font, self.text.ptr, color) orelse {
             debug.print("ERROR: {s}\n", .{self.text});
             return;
         };
@@ -90,7 +93,7 @@ pub const Renderer = struct {
     window_height: i32,
     render_data: std.ArrayList(*NodeRenderData),
     allocator: std.mem.Allocator,
-    ioptr: *c.ImGuiIO,
+    // ioptr: *c.ImGuiIO,
 
     pub fn init(window_width: i32, window_height: i32, font_size: i32, allocator: std.mem.Allocator) !Renderer {
         if (c.SDL_Init(c.SDL_INIT_VIDEO) < 0) {
@@ -125,24 +128,22 @@ pub const Renderer = struct {
         };
 
         //init imgui
-        _ = c.igCreateContext(null) orelse {
-            c.SDL_Log("Unable to initialize ImGui Context: %s", c.SDL_GetError());
-            return error.SDLInitializationFailed;
-        };
+        // _ = c.igCreateContext(null) orelse {
+        //     c.SDL_Log("Unable to initialize ImGui Context: %s", c.SDL_GetError());
+        //     return error.SDLInitializationFailed;
+        // };
 
-        const ioptr = c.igGetIO();
-        ioptr.*.ConfigFlags |= c.ImGuiConfigFlags_NavEnableKeyboard;
-        if (!c.ImGui_ImplSDL2_InitForSDLRenderer(window, renderer)) {
-            c.SDL_Log("Unable to initialize ImGui Context: %s", c.SDL_GetError());
-            return error.SDLInitializationFailed;
-        }
+        // const ioptr = c.igGetIO();
+        // ioptr.*.ConfigFlags |= c.ImGuiConfigFlags_NavEnableKeyboard;
+        // if (!c.ImGui_ImplSDL2_InitForSDLRenderer(window, renderer)) {
+        //     c.SDL_Log("Unable to initialize ImGui Context: %s", c.SDL_GetError());
+        //     return error.SDLInitializationFailed;
+        // }
 
-        if (!c.ImGui_ImplSDLRenderer2_Init(renderer)) {
-            c.SDL_Log("Unable to initialize ImGui Context: %s", c.SDL_GetError());
-            return error.SDLInitializationFailed;
-        }
-
-        c.igStyleColorsDark(null);
+        // if (!c.ImGui_ImplSDLRenderer2_Init(renderer)) {
+        //     c.SDL_Log("Unable to initialize ImGui Context: %s", c.SDL_GetError());
+        //     return error.SDLInitializationFailed;
+        // }
 
         return Renderer{
             .renderer = renderer,
@@ -152,45 +153,37 @@ pub const Renderer = struct {
             .window_width = window_width,
             .allocator = allocator,
             .render_data = std.ArrayList(*NodeRenderData).init(allocator),
-            .ioptr = ioptr,
+            // .ioptr = ioptr,
         };
     }
 
-    pub fn render(self: *Renderer, graph: *Graph) !void {
+    pub fn initNgGUI(self: *Renderer, ngGui: *gui.NgGUI) !void {
+        try ngGui.initRenderer(self.window, self.renderer);
+    }
 
-        // start imgui frame
-        c.ImGui_ImplSDLRenderer2_NewFrame();
-        c.ImGui_ImplSDL2_NewFrame();
-        c.igNewFrame();
-
-        _ = c.igBegin("Hello, world!", null, 0);
-        c.igText("This is some useful text");
-        c.igEnd();
-        c.igRender();
-
+    pub fn render(self: *Renderer, graph: *Graph, ngGui: *gui.NgGUI) !void {
         setColor(self.renderer, BACKGROUND_COLOR);
         _ = c.SDL_RenderClear(self.renderer);
         //render edges
-        var iter = graph.edges.iterator();
         var w: i32 = 0;
         var h: i32 = 0;
         c.SDL_GetWindowSize(self.window, &w, &h);
         setColor(self.renderer, EDGE_COLOR);
 
-        while (iter.next()) |entry| {
-            const edge = entry.key_ptr;
-
-            // we assume the graph is valid
-            const v = graph.nodes.get(edge.v) orelse unreachable;
-            const u = graph.nodes.get(edge.u) orelse unreachable;
-
-            _ = c.SDL_RenderDrawLine(
-                self.renderer,
-                @as(i32, @intFromFloat(u.position.x)),
-                @as(i32, @intFromFloat(u.position.y)),
-                @as(i32, @intFromFloat(v.position.x)),
-                @as(i32, @intFromFloat(v.position.y)),
-            );
+        if (ngGui.show_edges) {
+            for (graph.nodes.values()) |node| {
+                const edges: [][2]Point = try node.layout_data.?.getEdges();
+                for (edges) |edge| {
+                    const u, const v = edge;
+                    _ = c.SDL_RenderDrawLine(
+                        self.renderer,
+                        @as(i32, @intFromFloat(u.x)),
+                        @as(i32, @intFromFloat(u.y)),
+                        @as(i32, @intFromFloat(v.x)),
+                        @as(i32, @intFromFloat(v.y)),
+                    );
+                }
+            }
         }
 
         ////render vertices
@@ -199,21 +192,25 @@ pub const Renderer = struct {
         setColor(self.renderer, VERT_COLOR);
         while (iter_nodes.next()) |entry| {
             const node: *graph_lib.Node = entry.value_ptr;
-            const x: i32 = @as(i32, @intFromFloat(node.position.x));
-            const y: i32 = @as(i32, @intFromFloat(node.position.y));
+            const pos = node.layout_data.?.getPos();
+            const x: i32 = @as(i32, @intFromFloat(pos.x));
+            const y: i32 = @as(i32, @intFromFloat(pos.y));
 
             // self.renderNodeFilled(x, y, 5);
             _ = c.filledCircleColor(self.renderer, @intCast(x), @intCast(y), 5, VERT_COLOR);
 
-            if (node.render_data) |nrd| {
-                _ = c.SDL_RenderCopy(self.renderer, nrd.texture, null, &nrd.rect);
-            } else {
-                unreachable;
+            if (ngGui.show_font) {
+                if (node.render_data) |nrd| {
+                    _ = c.SDL_RenderCopy(self.renderer, nrd.texture, null, &nrd.rect);
+                } else {
+                    unreachable;
+                }
             }
         }
 
         //Render text TODO Remove me
-        c.ImGui_ImplSDLRenderer2_RenderDrawData(c.igGetDrawData());
+        // c.ImGui_ImplSDLRenderer2_RenderDrawData(c.igGetDrawData());
+        ngGui.render();
         c.SDL_RenderPresent(self.renderer);
     }
 
@@ -280,11 +277,14 @@ pub const Renderer = struct {
     pub fn updateRenderData(self: *Renderer, graph: *graph_lib.Graph) !void {
         var nodes = graph.nodes;
         var iter_nodes = nodes.iterator();
+        if (!graph.changed) return;
+        debug.print("Updated Render Data\n", .{});
         while (iter_nodes.next()) |entry| {
             var node: *graph_lib.Node = entry.value_ptr;
             if (node.render_data) |render_data| {
-                render_data.rect.x = @as(i32, @intFromFloat(node.position.x));
-                render_data.rect.y = @as(i32, @intFromFloat(node.position.y));
+                const pos = node.layout_data.?.getPos();
+                render_data.rect.x = @as(i32, @intFromFloat(pos.x));
+                render_data.rect.y = @as(i32, @intFromFloat(pos.y));
                 if (!std.mem.eql(u8, render_data.text, node.file)) {
                     try render_data.updateText(node.file, self.font, self.renderer);
                 }
@@ -296,6 +296,7 @@ pub const Renderer = struct {
                 node.render_data = self.render_data.items[self.render_data.items.len - 1];
             }
         }
+        graph.changed = false;
     }
 
     pub fn deinit(self: *Renderer) void {

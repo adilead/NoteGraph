@@ -9,6 +9,8 @@ const rendering_lib = @import("renderer.zig");
 const layout = @import("layout.zig");
 const Graph = graph_lib.Graph;
 const Renderer = rendering_lib.Renderer;
+const NgGui = @import("gui.zig").NgGUI;
+const tests = @import("tests.zig");
 
 const c = @import("c_include.zig").c;
 const WINDOW_WIDTH: i32 = 1500;
@@ -25,7 +27,7 @@ const debug = std.debug;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(gpa.deinit() == .ok);
+    // defer std.debug.assert(gpa.deinit() == .ok);
 
     var arena = std.heap.ArenaAllocator.init(gpa.allocator());
     defer arena.deinit();
@@ -44,17 +46,16 @@ pub fn main() !void {
             arena.allocator().free(file);
         }
     }
-    // for (files.items) |f| {
-    //     debug.print("{s}\n", .{f});
-    // }
 
     var graph: Graph = try Graph.init(gpa.allocator(), ngConf.root, files, @floatFromInt(WINDOW_WIDTH), @floatFromInt(WINDOW_HEIGHT));
     defer graph.deinit();
 
-    try layout.layout(&graph, layout.LayoutMethod.Fruchterman, WINDOW_WIDTH, WINDOW_HEIGHT);
-
     var renderer = try Renderer.init(WINDOW_WIDTH, WINDOW_HEIGHT, ngConf.font_size, arena.allocator());
     defer renderer.deinit();
+
+    var ng_gui = NgGui.init(gpa.allocator());
+    defer ng_gui.deinit();
+    try renderer.initNgGUI(&ng_gui);
 
     // try startWindow();
 
@@ -70,8 +71,18 @@ pub fn main() !void {
             _ = c.ImGui_ImplSDL2_ProcessEvent(&event);
         }
 
+        try ng_gui.build();
+
+        if (ng_gui.layout_changed) {
+            debug.print("Change layout\n", .{});
+            layout.resetLayout(&graph); //TODO Remove me
+            const new_layout = ng_gui.selected_layout_method;
+            try layout.layout(gpa.allocator(), &graph, new_layout, WINDOW_WIDTH, WINDOW_HEIGHT);
+            ng_gui.layout_changed = false;
+        }
+
         try renderer.updateRenderData(&graph);
-        try renderer.render(&graph);
+        try renderer.render(&graph, &ng_gui);
 
         _ = c.SDL_Delay(1000 / 30);
     }

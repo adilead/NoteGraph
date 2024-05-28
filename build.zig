@@ -10,6 +10,21 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    addLibs(b, exe);
+    b.installArtifact(exe);
+
+    const run_ng = b.addRunArtifact(exe);
+    const run_ng_step = b.step("run", "Runs the app");
+    run_ng_step.dependOn(&run_ng.step);
+
+    const unit_test_step = b.step("test", "Runs unit tests");
+    const test_utils = b.addTest(.{ .root_source_file = b.path("src/tests.zig") });
+    addLibs(b, test_utils);
+    const run_unit = b.addRunArtifact(test_utils);
+    unit_test_step.dependOn(&run_unit.step);
+}
+
+pub fn addLibs(b: *std.Build, exe: *std.Build.Step.Compile) void {
     exe.linkSystemLibrary("SDL2");
     exe.linkSystemLibrary("SDL2_ttf");
     exe.linkSystemLibrary("SDL2_gfx");
@@ -40,15 +55,4 @@ pub fn build(b: *std.Build) void {
     exe.addCSourceFiles(.{ .files = &IMGUI_SOURCES });
     exe.defineCMacro("IMGUI_IMPL_OPENGL_LOADER_GL3W", "");
     exe.defineCMacro("IMGUI_IMPL_API", "extern \"C\"");
-
-    b.installArtifact(exe);
-
-    const run_ng = b.addRunArtifact(exe);
-    const run_ng_step = b.step("run", "Runs the app");
-    run_ng_step.dependOn(&run_ng.step);
-
-    const unit_test_step = b.step("test", "Runs unit tests");
-    const test_utils = b.addTest(.{ .root_source_file = b.path("src/utils.zig") });
-    const run_unit = b.addRunArtifact(test_utils);
-    unit_test_step.dependOn(&run_unit.step);
 }

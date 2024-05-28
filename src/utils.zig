@@ -161,12 +161,48 @@ pub fn getLinks(allocator: std.mem.Allocator, file_path: []const u8, root: []con
     return linked_files;
 }
 
+pub fn graphIsCyclic(allocator: std.mem.Allocator, m: [][]bool) !bool {
+    const n = m.len;
+    const visited = try allocator.alloc(bool, n);
+    defer allocator.free(visited);
+    for (0..m.len) |i| visited[i] = false;
+
+    const rec_stack = try allocator.alloc(bool, n);
+    defer allocator.free(rec_stack);
+    for (0..m.len) |i| rec_stack[i] = false;
+
+    for (0..n) |i| {
+        if (!visited[i] and try graphIsCyclicUtil(i, m, visited, rec_stack)) return true;
+    }
+    return false;
+}
+
+fn graphIsCyclicUtil(node: usize, m: [][]bool, visited: []bool, rec_stack: []bool) !bool {
+    if (!visited[node]) {
+        visited[node] = true;
+        rec_stack[node] = true;
+
+        for (m[node], 0..m.len) |e, i| {
+            if (e) {
+                if (!visited[i] and try graphIsCyclicUtil(i, m, visited, rec_stack)) {
+                    return true;
+                } else if (rec_stack[i]) {
+                    return true;
+                }
+            }
+        }
+    }
+    rec_stack[node] = false;
+    return false;
+}
+
 /// Returns a list of Hashtags.
 /// TODO Implement. Hashtags must occur in form #tag_. Hashtags may not be taken in code listings
 pub fn getHashtags(allocator: std.mem.Allocator, file: []const u8) !std.ArrayList([]const u8) {
     _ = file;
 
     const hashtags = std.ArrayList([]const u8).init(allocator);
+    errdefer hashtags.deinit();
 
     return hashtags;
 }
@@ -274,4 +310,45 @@ test "link in file" {
         defer test_allocator.free(p);
         try std.testing.expectEqualStrings(p, links_unchecked.items[2]);
     }
+}
+
+test "cyclic graph" {
+    const alloc = std.testing.allocator;
+
+    const n = 5;
+    const matrix = try alloc.alloc([]bool, n);
+    defer alloc.free(matrix);
+
+    for (0..n) |i| {
+        matrix[i] = try alloc.alloc(bool, n);
+        for (0..n) |j| {
+            matrix[i][j] = false;
+        }
+    }
+
+    defer {
+        for (0..n) |i| {
+            alloc.free(matrix[i]);
+        }
+    }
+
+    matrix[0][1] = true;
+    matrix[1][2] = true;
+    matrix[2][0] = true;
+    matrix[4][1] = true;
+    matrix[0][4] = true;
+
+    try std.testing.expectEqual(true, try graphIsCyclic(alloc, matrix));
+    for (0..n) |i| {
+        for (0..n) |j| {
+            matrix[i][j] = false;
+        }
+    }
+
+    matrix[0][1] = true;
+    matrix[1][3] = true;
+    matrix[2][0] = true;
+    matrix[4][1] = true;
+    matrix[0][4] = true;
+    try std.testing.expectEqual(false, try graphIsCyclic(alloc, matrix));
 }

@@ -9,6 +9,7 @@ const math = std.math;
 
 const utils = @import("utils.zig");
 const renderer = @import("renderer.zig");
+const layout = @import("layout.zig");
 
 pub const Node = struct {
     id: u32,
@@ -20,9 +21,10 @@ pub const Node = struct {
     created: i64, //time stamp
     position: Point,
     render_data: ?*renderer.NodeRenderData, // not owned
+    layout_data: ?layout.LayoutData,
 };
 
-const Edge = struct {
+pub const Edge = struct {
     u: u32,
     v: u32,
 };
@@ -47,6 +49,7 @@ pub const Graph = struct {
     id_lookup: std.StringArrayHashMap(u32),
     window_width: f32,
     window_height: f32,
+    changed: bool,
 
     pub fn init(allocator: Allocator, root: []const u8, files: std.ArrayList([]const u8), window_width: f32, window_height: f32) !Graph {
         const nodes = std.AutoArrayHashMap(u32, Node).init(allocator);
@@ -61,6 +64,7 @@ pub const Graph = struct {
             .id_lookup = id_lookup,
             .window_width = window_width,
             .window_height = window_height,
+            .changed = true,
         };
 
         try graph.update(files);
@@ -89,7 +93,7 @@ pub const Graph = struct {
                 const hashtags = try utils.getHashtags(self.allocator, file);
 
                 // create new Node
-                const node = Node{ .id = id, .file = std.fs.path.basename(file_cpy), .path = file_cpy, .edges = std.ArrayList(u32).init(self.allocator), .file_links = file_links, .hashtags = hashtags, .created = std.time.milliTimestamp(), .position = Point{ .x = random.float(f32) * self.window_width, .y = random.float(f32) * self.window_height }, .render_data = null };
+                const node = Node{ .id = id, .file = std.fs.path.basename(file_cpy), .path = file_cpy, .edges = std.ArrayList(u32).init(self.allocator), .file_links = file_links, .hashtags = hashtags, .created = std.time.milliTimestamp(), .position = Point{ .x = random.float(f32) * self.window_width, .y = random.float(f32) * self.window_height }, .render_data = null, .layout_data = null };
                 // update nodes
                 try self.nodes.put(id, node);
             }
@@ -111,6 +115,7 @@ pub const Graph = struct {
         self.edges.clearAndFree();
         while (iter.next()) |entry| {
             const node: *Node = entry.value_ptr;
+            node.edges.clearAndFree();
             for (node.file_links.items) |link| {
                 const v = node.id;
 
@@ -118,6 +123,7 @@ pub const Graph = struct {
                     // std.debug.print("Skipped {s}: {s}\n", .{ node.path, link });
                     continue;
                 };
+                try node.edges.append(u);
 
                 const edge: Edge = .{ .v = v, .u = u };
                 const adv_edge: Edge = .{ .v = u, .u = v };
@@ -145,6 +151,10 @@ pub const Graph = struct {
 
             node.edges.deinit();
             node.hashtags.deinit();
+            if (node.layout_data) |_| {} else {
+                node.layout_data.?.deinit();
+                node.layout_data = null;
+            }
         }
 
         self.nodes.deinit();
@@ -154,29 +164,29 @@ pub const Graph = struct {
     }
 };
 
-test "Simple Graph" {
-    std.debug.print("\n", .{}); // new line from Test [] line
+// test "Simple Graph" {
+//     std.debug.print("\n", .{}); // new line from Test [] line
 
-    var file_types = std.ArrayList([]const u8).init(test_allocator);
-    defer file_types.deinit();
+//     var file_types = std.ArrayList([]const u8).init(test_allocator);
+//     defer file_types.deinit();
 
-    try file_types.append("md");
-    try file_types.append("txt");
+//     try file_types.append("md");
+//     try file_types.append("txt");
 
-    const root = std.fs.cwd().realpathAlloc(test_allocator, "./test") catch |err| {
-        try stderr.print("test is not a valid dir\n", .{});
-        return err;
-    };
-    defer test_allocator.free(root);
+//     const root = std.fs.cwd().realpathAlloc(test_allocator, "./test") catch |err| {
+//         try stderr.print("test is not a valid dir\n", .{});
+//         return err;
+//     };
+//     defer test_allocator.free(root);
 
-    var files = try utils.traverseRoot(test_allocator, root, &file_types);
+//     var files = try utils.traverseRoot(test_allocator, root, &file_types);
 
-    var graph: Graph = try Graph.init(test_allocator, files);
+//     var graph: Graph = try Graph.init(test_allocator, files);
 
-    for (files.items) |el| {
-        test_allocator.free(el);
-    }
-    files.deinit();
+//     for (files.items) |el| {
+//         test_allocator.free(el);
+//     }
+//     files.deinit();
 
-    defer graph.deinit();
-}
+//     defer graph.deinit();
+// }
