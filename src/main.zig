@@ -59,18 +59,59 @@ pub fn main() !void {
 
     // try startWindow();
 
+    var mouse_start: ?@Vector(2, f32) = null;
+    var mouse_end: ?@Vector(2, f32) = null;
     while (!quit) {
         var event: c.SDL_Event = undefined;
+
         while (c.SDL_PollEvent(&event) != 0) {
+            _ = c.ImGui_ImplSDL2_ProcessEvent(&event);
+            if (ng_gui.ioptr.?.WantCaptureMouse) {
+                mouse_start = null;
+                mouse_end = null;
+                continue;
+            }
             switch (event.type) {
                 c.SDL_QUIT => {
                     quit = true;
                 },
+                c.SDL_MOUSEWHEEL => {
+                    if (event.wheel.y != 0) {
+                        renderer.scale += @as(f32, @floatFromInt(event.wheel.y)) * 0.2;
+                    }
+                },
+                c.SDL_MOUSEBUTTONDOWN => {
+                    if (event.button.button == 1) {
+                        mouse_start = mouse_start orelse @Vector(2, f32){
+                            @floatFromInt(event.button.x),
+                            @floatFromInt(event.button.y),
+                        };
+                    }
+                },
+                c.SDL_MOUSEMOTION => {
+                    if (mouse_start) |_| {
+                        mouse_end = @Vector(2, f32){
+                            @floatFromInt(event.motion.x),
+                            @floatFromInt(event.motion.y),
+                        };
+                    }
+                },
+                c.SDL_MOUSEBUTTONUP => {
+                    if (event.button.button == 1) {
+                        mouse_start = null;
+                        mouse_end = null;
+                    }
+                },
                 else => {},
             }
-            _ = c.ImGui_ImplSDL2_ProcessEvent(&event);
         }
 
+        //process what to do with the mouse on the canvas
+        //for now, we simply want to move the canvas
+        if (mouse_start != null and mouse_end != null) {
+            renderer.shift = renderer.shift + (mouse_end.? - mouse_start.?) * @Vector(2, f32){ renderer.scale, renderer.scale };
+            mouse_start = mouse_end;
+        }
         try ng_gui.build();
 
         if (ng_gui.layout_changed) {

@@ -93,6 +93,9 @@ pub const Renderer = struct {
     window_height: i32,
     render_data: std.ArrayList(*NodeRenderData),
     allocator: std.mem.Allocator,
+    scale: f32,
+    center: @Vector(2, f32),
+    shift: @Vector(2, f32),
     // ioptr: *c.ImGuiIO,
 
     pub fn init(window_width: i32, window_height: i32, font_size: i32, allocator: std.mem.Allocator) !Renderer {
@@ -153,7 +156,9 @@ pub const Renderer = struct {
             .window_width = window_width,
             .allocator = allocator,
             .render_data = std.ArrayList(*NodeRenderData).init(allocator),
-            // .ioptr = ioptr,
+            .scale = 1.0,
+            .center = @Vector(2, f32){ @as(f32, @floatFromInt(window_width)) / 2.0, @as(f32, @floatFromInt(window_height)) / 2.0 },
+            .shift = @Vector(2, f32){ 0, 0 },
         };
     }
 
@@ -169,12 +174,23 @@ pub const Renderer = struct {
         var h: i32 = 0;
         c.SDL_GetWindowSize(self.window, &w, &h);
         setColor(self.renderer, EDGE_COLOR);
+        if (ngGui.reset_cam) {
+            self.scale = 1.0;
+            self.shift = @splat(0.0);
+            self.center = @Vector(2, f32){ @as(f32, @floatFromInt(self.window_width)) / 2.0, @as(f32, @floatFromInt(self.window_height)) / 2.0 };
+        }
+        var center = Point{ .x = self.center[0], .y = self.center[1] };
+        center = shift(&center, &self.shift);
 
         if (ngGui.show_edges) {
             for (graph.nodes.values()) |node| {
                 const edges: [][2]Point = try node.layout_data.?.getEdges();
                 for (edges) |edge| {
-                    const u, const v = edge;
+                    var u, var v = edge;
+                    u = shift(&u, &self.shift);
+                    v = shift(&v, &self.shift);
+                    u = scale(&u, &center, self.scale);
+                    v = scale(&v, &center, self.scale);
                     _ = c.SDL_RenderDrawLine(
                         self.renderer,
                         @as(i32, @intFromFloat(u.x)),
@@ -192,7 +208,9 @@ pub const Renderer = struct {
         setColor(self.renderer, VERT_COLOR);
         while (iter_nodes.next()) |entry| {
             const node: *graph_lib.Node = entry.value_ptr;
-            const pos = node.layout_data.?.getPos();
+            var pos = node.layout_data.?.getPos();
+            pos = shift(&pos, &self.shift);
+            pos = scale(&pos, &center, self.scale);
             const x: i32 = @as(i32, @intFromFloat(pos.x));
             const y: i32 = @as(i32, @intFromFloat(pos.y));
 
@@ -201,6 +219,8 @@ pub const Renderer = struct {
 
             if (ngGui.show_font) {
                 if (node.render_data) |nrd| {
+                    nrd.rect.x = x;
+                    nrd.rect.y = y;
                     _ = c.SDL_RenderCopy(self.renderer, nrd.texture, null, &nrd.rect);
                 } else {
                     unreachable;
@@ -314,3 +334,11 @@ pub const Renderer = struct {
         c.SDL_Quit();
     }
 };
+
+inline fn scale(p: *const Point, center: *const Point, s: f32) Point {
+    return Point{ .x = (p.x - center.x) * s + center.x, .y = (p.y - center.y) * s + center.y };
+}
+
+inline fn shift(p: *const Point, d: *const @Vector(2, f32)) Point {
+    return Point{ .x = p.x + d[0], .y = p.y + d[1] };
+}

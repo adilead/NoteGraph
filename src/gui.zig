@@ -20,6 +20,8 @@ pub const NgGUI = struct {
     show_edges: bool,
     show_edges_changed: bool,
 
+    reset_cam: bool,
+
     pub fn init(allocator: Allocator) NgGUI {
         return NgGUI{
             .allocator = allocator,
@@ -31,6 +33,7 @@ pub const NgGUI = struct {
             .show_font_changed = true,
             .show_edges = true,
             .show_edges_changed = true,
+            .reset_cam = false,
         };
     }
 
@@ -68,13 +71,19 @@ pub const NgGUI = struct {
         c.igNewFrame();
 
         // _ = c.igBegin("Hello, world!", null, c.ImGuiWindowFlags_None);
-        _ = c.igBegin("Hello, world!", null, c.ImGuiWindowFlags_None);
-        c.igText("Choose layout algorithm");
-        c.igSeparator();
+        _ = c.igBegin("Controls", null, c.ImGuiWindowFlags_None);
 
         //reset changed flags
         self.show_font_changed = false;
         self.show_edges_changed = false;
+        self.reset_cam = false;
+
+        //reset camera position
+        if (c.igButton("Reset", c.ImVec2{ .x = 100.0, .y = 30.0 })) {
+            self.reset_cam = true;
+        }
+        c.igSeparator();
+        c.igText("Choose layout algorithm");
 
         //Layout selector
         if (c.igBeginCombo("Layout", self.selected_layout_method.toString(), c.ImGuiComboFlags_None)) {
