@@ -282,6 +282,7 @@ pub const SugiyamaLayout = struct {
         var curr_layer: usize = 0;
         var b_counter: usize = 0;
         var it: usize = 0;
+        // var first_dummy = false;
         while (scheduled.keys().len < self.n_nodes) {
             if (it >= MaxIter) return SugiyamaLayoutError.IterationsExceeded;
             defer it += 1;
@@ -318,6 +319,11 @@ pub const SugiyamaLayout = struct {
                         count_u = curr_count_u;
                         count_v = curr_count_v;
                     }
+                    if (curr_layer != 0 and curr_count_v == 0 and curr_count_u >= count_u) {
+                        candidate = i;
+                        count_u = curr_count_u;
+                        count_v = curr_count_v;
+                    }
                 } else {
                     candidate = i;
                     count_u = curr_count_u;
@@ -325,6 +331,11 @@ pub const SugiyamaLayout = struct {
                 }
             }
             if (candidate) |cand| {
+                // if (!first_dummy and count_u == 0 and count_v == 0) {
+                //     first_dummy = true;
+                //     curr_layer += 1;
+                //     b_counter = 0;
+                // }
                 try scheduled.put(cand, curr_layer);
                 // std.debug.print("{d}: {d}\n", .{ cand, curr_layer });
                 b_counter += 1;
@@ -430,13 +441,21 @@ pub const SugiyamaLayout = struct {
         while (changed) {
             defer it += 1;
             // if (it >= MaxIter) return SugiyamaLayoutError.IterationsExceeded;
-            if (it >= 500) break;
+            if (it >= 2) break;
             changed = false;
             for (0..self.n_layers.? - 1) |i| {
-                changed = changed or self.oscm(OSCM.barycenter, &layer_lookup[i], &layer_lookup[i + 1], false);
+                std.debug.print("Layer {d} ---- ", .{i + 1});
+                changed = self.oscm(OSCM.barycenter, &layer_lookup[i], &layer_lookup[i + 1], false) or changed;
+                for (layer_lookup[i + 1].items, 0..) |j, l| {
+                    self.layout_data.?.items[j].order = @floatFromInt(l);
+                }
+                std.debug.print("\n", .{});
             }
-            for (0..self.n_layers.? - 1) |i| {
-                changed = changed or self.oscm(OSCM.barycenter, &layer_lookup[self.n_layers.? - i - 2], &layer_lookup[self.n_layers.? - i - 1], true);
+            for (0..self.n_layers.? - 2) |i| {
+                changed = self.oscm(OSCM.barycenter, &layer_lookup[self.n_layers.? - i - 2], &layer_lookup[self.n_layers.? - i - 1], true) or changed;
+                for (layer_lookup[self.n_layers.? - i - 2].items, 0..) |j, l| {
+                    self.layout_data.?.items[j].order = @floatFromInt(l);
+                }
             }
             //normalize order values
             for (0..self.n_layers.? - 1) |i| {
@@ -450,7 +469,7 @@ pub const SugiyamaLayout = struct {
         for (layer_lookup, 0..) |l, i| {
             std.debug.print("{d}: ", .{i});
             for (l.items) |j| {
-                std.debug.print("{d}-{d} ", .{ j, self.layout_data.?.items[j].layer });
+                std.debug.print("{d}-{d} ", .{ j, self.layout_data.?.items[j].order });
             }
             std.debug.print("\n", .{});
         }
@@ -484,14 +503,19 @@ pub const SugiyamaLayout = struct {
                     sum += self.layout_data.?.items[x].order;
                 }
             }
-            self.layout_data.?.items[y].order = sum / @as(f32, @floatFromInt(deg));
+            if (deg != 0) {
+                self.layout_data.?.items[y].order = sum / @as(f32, @floatFromInt(deg));
+            } else {
+                self.layout_data.?.items[y].order = 0;
+            }
         }
         //check if the order has changed
         var order_changed = false;
         for (0..a.items.len - 1) |i| {
+            std.debug.print("{d} ", .{self.layout_data.?.items[i].order});
             if (self.layout_data.?.items[i].order > self.layout_data.?.items[i + 1].order) {
                 order_changed = true;
-                break;
+                // break;
             }
         }
         if (!order_changed) return false;

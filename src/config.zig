@@ -6,16 +6,19 @@ const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
 
 const default_root = "test/";
+const default_pipe = "/tmp/notegraph.pipe";
 const default_font_size = "12";
 
 pub const NGConfig = struct {
     root: []u8,
+    pipe: []const u8,
     font_size: i32,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, map: std.StringHashMap([]const u8)) !NGConfig {
         // TODO Make root mandatory
         var root = try allocator.dupe(u8, map.get("root") orelse default_root);
+        const pipe = try allocator.dupe(u8, map.get("pipe") orelse default_pipe);
         const font_size = try std.fmt.parseInt(i32, map.get("fontsize") orelse default_font_size, 10);
 
         //TODO this doesn't seem right
@@ -24,7 +27,7 @@ pub const NGConfig = struct {
             return err;
         };
 
-        return NGConfig{ .root = root, .font_size = font_size, .allocator = allocator };
+        return NGConfig{ .root = root, .font_size = font_size, .allocator = allocator, .pipe = pipe };
     }
 
     pub fn initJSON(allocator: std.mem.Allocator, jsonPath: []const u8) NGConfig {

@@ -11,6 +11,7 @@ const Graph = graph_lib.Graph;
 const Renderer = rendering_lib.Renderer;
 const NgGui = @import("gui.zig").NgGUI;
 const tests = @import("tests.zig");
+const nvim = @import("nvim.zig");
 
 const c = @import("c_include.zig").c;
 const WINDOW_WIDTH: i32 = 1500;
@@ -57,10 +58,10 @@ pub fn main() !void {
     defer ng_gui.deinit();
     try renderer.initNgGUI(&ng_gui);
 
-    // try startWindow();
-
     var mouse_start: ?@Vector(2, f32) = null;
     var mouse_end: ?@Vector(2, f32) = null;
+    var mouse_down: ?@Vector(2, f32) = null;
+    var mouse_up: ?@Vector(2, f32) = null;
     while (!quit) {
         var event: c.SDL_Event = undefined;
 
@@ -86,6 +87,7 @@ pub fn main() !void {
                             @floatFromInt(event.button.x),
                             @floatFromInt(event.button.y),
                         };
+                        mouse_down = mouse_start;
                     }
                 },
                 c.SDL_MOUSEMOTION => {
@@ -101,6 +103,10 @@ pub fn main() !void {
                         mouse_start = null;
                         mouse_end = null;
                     }
+                    mouse_up = mouse_start orelse @Vector(2, f32){
+                        @floatFromInt(event.button.x),
+                        @floatFromInt(event.button.y),
+                    };
                 },
                 else => {},
             }
@@ -109,9 +115,49 @@ pub fn main() !void {
         //process what to do with the mouse on the canvas
         //for now, we simply want to move the canvas
         if (mouse_start != null and mouse_end != null) {
-            renderer.shift = renderer.shift + (mouse_end.? - mouse_start.?) * @Vector(2, f32){ renderer.scale, renderer.scale };
-            mouse_start = mouse_end;
+            //check if a text box was clicked
+            var mouse_point: c.SDL_Point = .{ .x = @intFromFloat(mouse_start.?[0]), .y = @intFromFloat(mouse_start.?[1]) };
+            var shift_cam = true;
+            for (graph.nodes.values()) |node| {
+                if (node.render_data) |nrd| {
+                    if (c.SDL_PointInRect(&mouse_point, &nrd.rect) != 0) {
+                        shift_cam = false;
+                        break;
+                    }
+                }
+            }
+            if (shift_cam) {
+                renderer.shift += (mouse_end.? - mouse_start.?);
+                mouse_start = mouse_end;
+            } else {
+                mouse_start = null;
+                mouse_end = null;
+            }
         }
+
+        if (mouse_down != null and mouse_up != null) {
+            // var shift_ = true;
+            var mouse_down_point: c.SDL_Point = .{ .x = @intFromFloat(mouse_down.?[0]), .y = @intFromFloat(mouse_down.?[1]) };
+            var mouse_up_point: c.SDL_Point = .{ .x = @intFromFloat(mouse_up.?[0]), .y = @intFromFloat(mouse_up.?[1]) };
+
+            var path: ?[]const u8 = null;
+            for (graph.nodes.values()) |node| {
+                if (node.render_data) |nrd| {
+                    // mp = shift(&mp, &self.shift);
+                    // mp = scale(&mp, &Point{ .x = self.center[0], .y = self.center[1] }, self.scale);
+                    if (c.SDL_PointInRect(&mouse_down_point, &nrd.rect) != 0 and c.SDL_PointInRect(&mouse_up_point, &nrd.rect) != 0) {
+                        path = node.path;
+                        break;
+                    }
+                }
+            }
+            if (path) |p| {
+                try nvim.openInNvim(gpa.allocator(), p, ngConf.pipe);
+                mouse_down = null;
+                mouse_up = null;
+            }
+        }
+
         try ng_gui.build();
 
         if (ng_gui.layout_changed) {
@@ -122,7 +168,7 @@ pub fn main() !void {
             ng_gui.layout_changed = false;
         }
 
-        try renderer.updateRenderData(&graph);
+        try renderer.updateRenderData(&graph, &ng_gui);
         try renderer.render(&graph, &ng_gui);
 
         _ = c.SDL_Delay(1000 / 30);
@@ -147,6 +193,11 @@ pub fn getConfig(allocator: mem.Allocator) !config.NGConfig {
             const root = args.next() orelse break;
 
             try map.put("root", root);
+            debug.print("{s}\n", .{root});
+        } else if (std.mem.eql(u8, arg, "--pipe")) {
+            const root = args.next() orelse break;
+
+            try map.put("pipe", root);
             debug.print("{s}\n", .{root});
         } else if (std.mem.eql(u8, arg, "--config")) {
             const config_path: []const u8 = args.next() orelse break;

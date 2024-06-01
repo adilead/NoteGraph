@@ -11,10 +11,16 @@ const Point = graph_lib.Point;
 const gui = @import("gui.zig");
 const Graph = graph_lib.Graph;
 
-const BACKGROUND_COLOR = 0xFF181818; // abgr
-const EDGE_COLOR = 0xFFFFFFFF; // abgr
-const VERT_COLOR = 0xFFFFFF00; // abgr
-const ORANGE_COLOR = 0xFF5396EE; // abgr
+// Colors in abgr format
+const BACKGROUND_COLOR = 0xFF181818;
+const EDGE_COLOR = 0xFF707070;
+const VERT_COLOR = 0xFFFFFF00;
+const ORANGE_COLOR = 0xFF5396EE;
+
+const EDGE_HIGHLIGHT = 0xFF0000B3;
+const EDGE_UNHIGHLIGHTED = 0xFF303030;
+const VERT_HIGHLIGHT = 0xFF0000B3;
+const VERT_UNHIGHLIGHTED = 0xFF303030;
 
 const RenderError = error{
     InvalidGraph,
@@ -96,6 +102,7 @@ pub const Renderer = struct {
     scale: f32,
     center: @Vector(2, f32),
     shift: @Vector(2, f32),
+    selected_node: ?*graph_lib.Node,
     // ioptr: *c.ImGuiIO,
 
     pub fn init(window_width: i32, window_height: i32, font_size: i32, allocator: std.mem.Allocator) !Renderer {
@@ -124,29 +131,14 @@ pub const Renderer = struct {
         }
 
         //TODO add font option to config
-        const font_path = "fonts/Roboto-Medium.ttf";
+        const font_rel_path = "fonts/Roboto-Medium.ttf";
+        const exe_dir = try std.fs.selfExeDirPathAlloc(allocator);
+        defer allocator.free(exe_dir);
+        const font_path = try std.fs.path.joinZ(allocator, &[3][]const u8{ exe_dir, "../../", font_rel_path });
         const font = c.TTF_OpenFont(font_path, font_size) orelse {
             c.SDL_Log("Unable to initialize SDL TTF: %s", c.SDL_GetError());
             return error.FontInitializationFailed;
         };
-
-        //init imgui
-        // _ = c.igCreateContext(null) orelse {
-        //     c.SDL_Log("Unable to initialize ImGui Context: %s", c.SDL_GetError());
-        //     return error.SDLInitializationFailed;
-        // };
-
-        // const ioptr = c.igGetIO();
-        // ioptr.*.ConfigFlags |= c.ImGuiConfigFlags_NavEnableKeyboard;
-        // if (!c.ImGui_ImplSDL2_InitForSDLRenderer(window, renderer)) {
-        //     c.SDL_Log("Unable to initialize ImGui Context: %s", c.SDL_GetError());
-        //     return error.SDLInitializationFailed;
-        // }
-
-        // if (!c.ImGui_ImplSDLRenderer2_Init(renderer)) {
-        //     c.SDL_Log("Unable to initialize ImGui Context: %s", c.SDL_GetError());
-        //     return error.SDLInitializationFailed;
-        // }
 
         return Renderer{
             .renderer = renderer,
@@ -159,6 +151,7 @@ pub const Renderer = struct {
             .scale = 1.0,
             .center = @Vector(2, f32){ @as(f32, @floatFromInt(window_width)) / 2.0, @as(f32, @floatFromInt(window_height)) / 2.0 },
             .shift = @Vector(2, f32){ 0, 0 },
+            .selected_node = null,
         };
     }
 
@@ -173,17 +166,21 @@ pub const Renderer = struct {
         var w: i32 = 0;
         var h: i32 = 0;
         c.SDL_GetWindowSize(self.window, &w, &h);
-        setColor(self.renderer, EDGE_COLOR);
-        if (ngGui.reset_cam) {
-            self.scale = 1.0;
-            self.shift = @splat(0.0);
-            self.center = @Vector(2, f32){ @as(f32, @floatFromInt(self.window_width)) / 2.0, @as(f32, @floatFromInt(self.window_height)) / 2.0 };
-        }
+
         var center = Point{ .x = self.center[0], .y = self.center[1] };
         center = shift(&center, &self.shift);
 
         if (ngGui.show_edges) {
             for (graph.nodes.values()) |node| {
+                if (self.selected_node) |selected_node| {
+                    if (selected_node.id == node.id) {
+                        setColor(self.renderer, EDGE_HIGHLIGHT);
+                    } else {
+                        setColor(self.renderer, EDGE_UNHIGHLIGHTED);
+                    }
+                } else {
+                    setColor(self.renderer, EDGE_COLOR);
+                }
                 const edges: [][2]Point = try node.layout_data.?.getEdges();
                 for (edges) |edge| {
                     var u, var v = edge;
@@ -208,19 +205,29 @@ pub const Renderer = struct {
         setColor(self.renderer, VERT_COLOR);
         while (iter_nodes.next()) |entry| {
             const node: *graph_lib.Node = entry.value_ptr;
+            var color: u32 = VERT_COLOR;
+
             var pos = node.layout_data.?.getPos();
             pos = shift(&pos, &self.shift);
             pos = scale(&pos, &center, self.scale);
             const x: i32 = @as(i32, @intFromFloat(pos.x));
             const y: i32 = @as(i32, @intFromFloat(pos.y));
 
-            // self.renderNodeFilled(x, y, 5);
-            _ = c.filledCircleColor(self.renderer, @intCast(x), @intCast(y), 5, VERT_COLOR);
+            var node_is_highlighted = false;
+            if (self.selected_node) |selected_node| {
+                if (selected_node.id == node.id or std.mem.containsAtLeast(u32, selected_node.edges.items, 1, &[_]u32{node.id})) {
+                    color = VERT_HIGHLIGHT;
+                    node_is_highlighted = true;
+                } else {
+                    color = VERT_UNHIGHLIGHTED;
+                }
+            }
 
-            if (ngGui.show_font) {
+            // self.renderNodeFilled(x, y, 5);
+            _ = c.filledCircleColor(self.renderer, @intCast(x), @intCast(y), 5, color);
+
+            if (ngGui.show_font and self.selected_node == null or (self.selected_node != null and node_is_highlighted)) {
                 if (node.render_data) |nrd| {
-                    nrd.rect.x = x;
-                    nrd.rect.y = y;
                     _ = c.SDL_RenderCopy(self.renderer, nrd.texture, null, &nrd.rect);
                 } else {
                     unreachable;
@@ -234,86 +241,47 @@ pub const Renderer = struct {
         c.SDL_RenderPresent(self.renderer);
     }
 
-    fn renderText(self: *Renderer, nrd: *NodeRenderData) void {
-        _ = nrd;
-        _ = self;
-    }
-
-    fn renderNodeFilled(self: *Renderer, x: i32, y: i32, radius: i32) void {
-        var offsetx: i32 = 0;
-        var offsety: i32 = radius;
-        var d: i32 = radius - 1;
-
-        while (offsety >= offsetx) {
-            _ = c.SDL_RenderDrawLine(self.renderer, x - offsety, y + offsetx, x + offsety, y + offsetx);
-            _ = c.SDL_RenderDrawLine(self.renderer, x - offsetx, y + offsety, x + offsetx, y + offsety);
-            _ = c.SDL_RenderDrawLine(self.renderer, x - offsetx, y - offsety, x + offsetx, y - offsety);
-            _ = c.SDL_RenderDrawLine(self.renderer, x - offsety, y - offsetx, x + offsety, y - offsetx);
-
-            if (d >= 2 * offsetx) {
-                d -= 2 * offsetx + 1;
-                offsetx += 1;
-            } else if (d < 2 * (radius - offsety)) {
-                d += 2 * offsety - 1;
-                offsety -= 1;
-            } else {
-                d += 2 * (offsety - offsetx - 1);
-                offsety -= 1;
-                offsetx += 1;
-            }
-        }
-    }
-    fn renderNode(self: *Renderer, x0: i32, y0: i32, radius: i32) void {
-        var x = radius - 1;
-        var y: i32 = 0;
-        var dx: i32 = 1;
-        var dy: i32 = 1;
-        var err: i32 = dx - (radius << 1);
-
-        while (x >= y) {
-            _ = c.SDL_RenderDrawPoint(self.renderer, x0 + x, y0 + y);
-            _ = c.SDL_RenderDrawPoint(self.renderer, x0 + y, y0 + x);
-            _ = c.SDL_RenderDrawPoint(self.renderer, x0 - y, y0 + x);
-            _ = c.SDL_RenderDrawPoint(self.renderer, x0 - x, y0 + y);
-            _ = c.SDL_RenderDrawPoint(self.renderer, x0 - x, y0 - y);
-            _ = c.SDL_RenderDrawPoint(self.renderer, x0 - y, y0 - x);
-            _ = c.SDL_RenderDrawPoint(self.renderer, x0 + y, y0 - x);
-            _ = c.SDL_RenderDrawPoint(self.renderer, x0 + x, y0 - y);
-
-            if (err <= 0) {
-                y += 1;
-                err += dy;
-                dy += 2;
-            }
-
-            if (err > 0) {
-                x -= 1;
-                dx += 2;
-                err += dx - (radius << 1);
-            }
-        }
-    }
-
-    pub fn updateRenderData(self: *Renderer, graph: *graph_lib.Graph) !void {
+    pub fn updateRenderData(self: *Renderer, graph: *graph_lib.Graph, ngGui: *gui.NgGUI) !void {
         var nodes = graph.nodes;
         var iter_nodes = nodes.iterator();
-        if (!graph.changed) return;
-        debug.print("Updated Render Data\n", .{});
+        if (ngGui.reset_cam) {
+            self.scale = 1.0;
+            self.shift = @splat(0.0);
+            self.center = @Vector(2, f32){ @as(f32, @floatFromInt(self.window_width)) / 2.0, @as(f32, @floatFromInt(self.window_height)) / 2.0 };
+        }
+        //TODO current mouse point needs to be transformed
+        var mouse_point: c.SDL_Point = undefined;
+        _ = c.SDL_GetMouseState(&mouse_point.x, &mouse_point.y);
+        const mp = Point{ .x = @floatFromInt(mouse_point.x), .y = @floatFromInt(mouse_point.y) };
+        // mp = shift(&mp, &self.shift);
+        // mp = scale(&mp, &Point{ .x = self.center[0], .y = self.center[1] }, self.scale);
+        mouse_point.x = @intFromFloat(mp.x);
+        mouse_point.y = @intFromFloat(mp.y);
+
+        self.selected_node = null;
+        var center = Point{ .x = self.center[0], .y = self.center[1] };
+        center = shift(&center, &self.shift);
+
         while (iter_nodes.next()) |entry| {
             var node: *graph_lib.Node = entry.value_ptr;
-            if (node.render_data) |render_data| {
-                const pos = node.layout_data.?.getPos();
-                render_data.rect.x = @as(i32, @intFromFloat(pos.x));
-                render_data.rect.y = @as(i32, @intFromFloat(pos.y));
-                if (!std.mem.eql(u8, render_data.text, node.file)) {
-                    try render_data.updateText(node.file, self.font, self.renderer);
-                }
-            } else {
+            if (node.render_data) |_| {} else {
                 const ndr = try self.allocator.create(NodeRenderData);
                 ndr.* = NodeRenderData.init(self.allocator, node, self.font, self.renderer);
                 try ndr.updateText(node.file, self.font, self.renderer);
                 try self.render_data.append(ndr);
                 node.render_data = self.render_data.items[self.render_data.items.len - 1];
+            }
+            var pos = node.layout_data.?.getPos();
+            pos = shift(&pos, &self.shift);
+            pos = scale(&pos, &Point{ .x = center.x, .y = center.y }, self.scale);
+            node.render_data.?.rect.x = @as(i32, @intFromFloat(pos.x)) - @divFloor(node.render_data.?.rect.w, 2);
+            node.render_data.?.rect.y = @as(i32, @intFromFloat(pos.y)) + 5;
+            if (c.SDL_PointInRect(&mouse_point, &node.render_data.?.rect) != 0) {
+                self.selected_node = node;
+            }
+            if (!std.mem.eql(u8, node.render_data.?.text, node.file)) {
+                debug.print("Updated Text {s}\n", .{node.file});
+                try node.render_data.?.updateText(node.file, self.font, self.renderer);
             }
         }
         graph.changed = false;
