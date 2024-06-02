@@ -10,6 +10,7 @@ pub const NgGUI = struct {
     allocator: Allocator,
     renderer_init: bool,
     ioptr: ?*c.ImGuiIO,
+    sdl_renderer: ?*c.SDL_Renderer,
 
     selected_layout_method: layout.LayoutMethod,
     layout_changed: bool,
@@ -27,6 +28,7 @@ pub const NgGUI = struct {
             .allocator = allocator,
             .renderer_init = false,
             .ioptr = null,
+            .sdl_renderer = null,
             .selected_layout_method = layout.LayoutMethod.sugiyama,
             .layout_changed = true,
             .show_font = true,
@@ -58,11 +60,11 @@ pub const NgGUI = struct {
 
         c.igStyleColorsDark(null);
         self.ioptr = ioptr;
+        self.sdl_renderer = renderer;
     }
 
     pub fn render(self: *NgGUI) void {
-        _ = self;
-        c.ImGui_ImplSDLRenderer2_RenderDrawData(c.igGetDrawData());
+        c.ImGui_ImplSDLRenderer2_RenderDrawData(c.igGetDrawData(), self.sdl_renderer.?);
     }
 
     pub fn build(self: *NgGUI) !void {

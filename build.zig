@@ -11,7 +11,10 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     addLibs(b, exe);
+    const prep_cimgui = b.addSystemCommand(&[_][]const u8{ "bash", "cimgui.sh" });
+
     b.installArtifact(exe);
+    b.getInstallStep().dependOn(&prep_cimgui.step);
 
     const run_ng = b.addRunArtifact(exe);
     const run_ng_step = b.step("run", "Runs the app");
@@ -42,7 +45,7 @@ pub fn addLibs(b: *std.Build, exe: *std.Build.Step.Compile) void {
         // These lines:
         "deps/cimgui/imgui/backends/imgui_impl_sdl2.cpp",
         "deps/cimgui/imgui/backends/imgui_impl_sdlrenderer2.cpp",
-        "deps/cimgui/imgui/backends/imgui_impl_opengl3.cpp",
+        // "deps/cimgui/imgui/backends/imgui_impl_opengl3.cpp",
     };
 
     exe.linkLibC();
